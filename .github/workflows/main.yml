@@ -65,18 +65,23 @@ jobs:
             -codec:v libvpx -b:v 1M -r 15 recording.webm > /dev/null 2>&1 &
           FFMPEG_PID=$!
 
+          # Disable exit-on-error otherwise a failing python script will skip the Video cleanup
+          set +e
           python main.py
           BOT_EXIT_CODE=$?
+          set -e
 
           kill -2 $FFMPEG_PID
           wait $FFMPEG_PID || true
           exit $BOT_EXIT_CODE
 
-      - name: Upload recording
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: recording-${{ github.run_id }}
-          path: recording.webm
+          name: artifacts-${{ github.run_id }}
+          path: |
+            recording.webm
+            *.png
           if-no-files-found: warn
           retention-days: 7

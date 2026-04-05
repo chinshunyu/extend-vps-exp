@@ -23,21 +23,33 @@ docker build -t "$IMAGE_NAME" .
 echo "[2/4] Starting container..."
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
+# Disable exit-on-error temporarily so we can extract artifacts even on failure
+set +e
 docker run --name "$CONTAINER_NAME" \
     -e EMAIL="$EMAIL" \
     -e PASSWORD="$PASSWORD" \
     -e PROXY_SERVER="$PROXY_SERVER" \
     -e DEBUG="$DEBUG" \
     "$IMAGE_NAME"
+EXIT_CODE=$?
+set -e
 
-echo "[3/4] Extracting recording.webm..."
-rm -f ./recording.webm 
-if docker cp "$CONTAINER_NAME":/app/recording.webm ./recording.webm; then
-    echo "Done: recording.webm saved to root."
-else
-    echo "Warning: could not find recording.webm."
-fi
+echo "[3/4] Extracting artifacts..."
+ARTIFACTS=("recording.webm" "skip_renewal.png" "before_click.png")
+
+# Clean up old local artifacts
+for f in "${ARTIFACTS[@]}"; do rm -f "./$f"; done
+
+# Extract files from container
+for f in "${ARTIFACTS[@]}"; do
+    if docker cp "$CONTAINER_NAME":/app/"$f" ./"$f" 2>/dev/null; then
+        echo "Done: $f saved to root."
+    elif [ "$f" == "recording.webm" ]; then
+        echo "Warning: could not find $f."
+    fi
+done
 
 echo "[4/4] Cleaning up..."
 docker rm -f "$CONTAINER_NAME"
 echo "Process completed."
+exit $EXIT_CODE

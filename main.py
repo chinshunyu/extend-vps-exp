@@ -75,8 +75,18 @@ async def main():
             logging.info('Proceeding to renewal selection...')
             await page.locator('text="引き続き無料VPSの利用を継続する"').click(no_wait_after=True)
             
-            logging.info('Waiting for captcha page...')
-            await page.wait_for_selector('img[src^="data:"]', timeout=30000)
+            logging.info('Waiting for renewal page or status...')
+            
+            # Wait for either the captcha image OR the suspension notice section
+            # This will raise TimeoutError if neither appears within 30s (correct behavior)
+            await page.wait_for_selector('img[src^="data:"], .newApp__suspended', timeout=30000)
+            
+            # If the suspension notice is visible, skip renewal gracefully
+            if await page.locator('.newApp__suspended').is_visible():
+                logging.info('SKIP: Renewal is not yet available (detected .newApp__suspended).')
+                logging.info('XServer: "利用期限の1日前から更新手続きが可能です。"')
+                await page.screenshot(path='skip_renewal.png', full_page=True)
+                return
 
             logging.info('Retrieving captcha...')
             body = await page.eval_on_selector('img[src^="data:"]', 'img => img.src')
@@ -113,8 +123,10 @@ async def main():
                 pass
                 
             if is_disabled:
-                logging.info('Button is disabled! Form might have auto-submitted or needs evaluation.')
-                await asyncio.sleep(5)
+                err_msg = 'Final button is DISABLED! Renewal failed or Turnstile verification was unsuccessful.'
+                logging.error(err_msg)
+                if not debug_mode:
+                    raise Exception(err_msg)
             else:
                 if debug_mode:
                     logging.info('DEBUG MODE: Final button is ENABLED and ready to click. Skipping click to preserve daily limit.')
