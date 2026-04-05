@@ -75,13 +75,18 @@ jobs:
           wait $FFMPEG_PID || true
           exit $BOT_EXIT_CODE
 
+      - name: Get timestamp
+        id: timestamp
+        if: always()
+        run: echo "date=$(TZ=Asia/Tokyo date +'%Y%m%d_%H%M%S')" >> $GITHUB_OUTPUT
+
       - name: Encrypt artifacts
         if: always()
         run: |
           7z a \
             -p"${{ secrets.PASSWORD }}" \
             -mhe=on \
-            artifacts.7z \
+            artifacts_${{ steps.timestamp.outputs.date }}.7z \
             recording.webm *.png 2>/dev/null || true
 
       - name: Upload encrypted artifacts
@@ -89,6 +94,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: artifacts-${{ github.run_id }}
-          path: artifacts.7z
+          path: artifacts_${{ steps.timestamp.outputs.date }}.7z
           if-no-files-found: warn
           retention-days: 3
