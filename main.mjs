@@ -156,6 +156,82 @@ async function resolveServerDetailUrl(page) {
     return new URL(href, page.url()).toString()
 }
 
+async function readCaptchaImageBody(page) {
+    const selectors = ['img[src^="data:image"]', 'img[src^="data:"]', 'img[src*="captcha"]', '.captcha img', 'form img']
+
+    try {
+        await page.waitForFunction(
+            selectorList => selectorList.some(selector => !!document.querySelector(selector)),
+            { timeout: 15000 },
+            selectors
+        )
+    } catch {}
+
+    const data = await page.evaluate(async selectorList => {
+        const listImages = () =>
+            Array.from(document.querySelectorAll('img'))
+                .map(img => ({
+                    src: (img.getAttribute('src') || '').slice(0, 180),
+                    alt: (img.getAttribute('alt') || '').slice(0, 80),
+                    cls: (img.className || '').toString().slice(0, 80),
+                }))
+                .slice(0, 12)
+
+        const listIframes = () =>
+            Array.from(document.querySelectorAll('iframe'))
+                .map(frame => ({
+                    src: (frame.getAttribute('src') || '').slice(0, 180),
+                    title: (frame.getAttribute('title') || '').slice(0, 80),
+                }))
+                .slice(0, 8)
+
+        const img = selectorList.map(selector => document.querySelector(selector)).find(Boolean)
+        const images = listImages()
+        const iframes = listIframes()
+        if (!img) {
+            return { body: null, resolved: null, fetchStatus: null, error: 'captcha image element not found', images, iframes }
+        }
+
+        const src = img.getAttribute('src') || ''
+        if (!src) {
+            return { body: null, resolved: null, fetchStatus: null, error: 'captcha src empty', images, iframes }
+        }
+
+        if (src.startsWith('data:')) {
+            return { body: src, resolved: null, fetchStatus: null, error: null, images, iframes }
+        }
+
+        const resolved = new URL(src, location.href).toString()
+        try {
+            const response = await fetch(resolved, { credentials: 'include' })
+            if (!response.ok) {
+                return { body: null, resolved, fetchStatus: response.status, error: 'captcha fetch non-ok', images, iframes }
+            }
+
+            const blob = await response.blob()
+            const body = await new Promise((resolve, reject) => {
+                const reader = new FileReader()
+                reader.onloadend = () => resolve(String(reader.result || ''))
+                reader.onerror = () => reject(new Error('read blob failed'))
+                reader.readAsDataURL(blob)
+            })
+            return { body, resolved, fetchStatus: response.status, error: null, images, iframes }
+        } catch (error) {
+            return { body: null, resolved, fetchStatus: null, error: String(error), images, iframes }
+        }
+    }, selectors)
+
+    if (!data.body) {
+        throw new Error(
+            `未找到可用验证码图片。url=${page.url()} reason=${data.error} resolved=${data.resolved || 'N/A'} fetchStatus=${
+                data.fetchStatus ?? 'N/A'
+            } images=${JSON.stringify(data.images)} iframes=${JSON.stringify(data.iframes)}`
+        )
+    }
+
+    return data.body
+}
+
 let browser
 let page
 let recorder
@@ -266,7 +342,7 @@ async function main() {
     })
 
     await runStep('solve captcha', async () => {
-        const body = await page.$eval('img[src^="data:"]', img => img.src)
+        const body = await readCaptchaImageBody(page)
         const code = await fetch('https://captcha-120546510085.asia-northeast1.run.app', {
             method: 'POST',
             body,
@@ -276,7 +352,9 @@ async function main() {
             throw new Error(`captcha service returned invalid code: ${code}`)
         }
 
-        await page.locator('[placeholder="上の画像の数字を入力"]').fill(code.trim())
+        const captchaInputSelector = '[placeholder*="上の画像"], input[name*="captcha"], input[id*="captcha"]'
+        await page.waitForSelector(captchaInputSelector, { timeout: 10000 })
+        await page.locator(captchaInputSelector).fill(code.trim())
     })
 
     await runStep('submit renew request', async () => {
