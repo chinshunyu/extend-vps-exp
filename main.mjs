@@ -107,6 +107,55 @@ async function readDetailExpiry(page) {
     return parsed
 }
 
+async function ensureLoggedInDashboard(page) {
+    const dashboardSelector = 'a[href*="/xapanel/xvps/server/detail?id="], tr:has(.freeServerIco)'
+    const loginFormSelector = '#memberid, #user_password'
+
+    try {
+        await page.waitForSelector(`${dashboardSelector}, ${loginFormSelector}`, { timeout: 20000 })
+    } catch {
+        const title = await page.title()
+        throw new Error(`登录后页面状态未知，未出现仪表盘或登录表单。url=${page.url()} title=${title}`)
+    }
+
+    const hasDashboard = !!(await page.$(dashboardSelector))
+    if (hasDashboard) {
+        return
+    }
+
+    const loginError = await page.evaluate(() => {
+        const msg =
+            document.querySelector('.errorMessage')?.textContent ||
+            document.querySelector('.alert')?.textContent ||
+            document.querySelector('.notice')?.textContent
+        return msg?.replace(/\s+/g, ' ').trim() || ''
+    })
+
+    throw new Error(`登录失败，仍停留在登录页。url=${page.url()} error=${loginError || 'N/A'}`)
+}
+
+async function resolveServerDetailUrl(page) {
+    const href = await page.evaluate(() => {
+        const row = document.querySelector('tr:has(.freeServerIco)')
+        const rowLink = row?.querySelector('a[href*="/xapanel/xvps/server/detail?id="]')
+        const anyLink = document.querySelector('a[href*="/xapanel/xvps/server/detail?id="]')
+        const link = rowLink || anyLink
+        return link ? link.getAttribute('href') : null
+    })
+
+    if (!href) {
+        const availableLinks = await page.evaluate(() =>
+            Array.from(document.querySelectorAll('a[href*="/xapanel/xvps/server/"]'))
+                .map(a => a.getAttribute('href'))
+                .filter(Boolean)
+                .slice(0, 5)
+        )
+        throw new Error(`未找到服务器详情链接。url=${page.url()} candidates=${JSON.stringify(availableLinks)}`)
+    }
+
+    return new URL(href, page.url()).toString()
+}
+
 let browser
 let page
 let recorder
@@ -183,14 +232,14 @@ async function main() {
         ])
     })
 
+    await runStep('verify login result', async () => {
+        await ensureLoggedInDashboard(page)
+    })
+
     let detailUrl = ''
     await runStep('open server detail page', async () => {
-        const detailLinkSelector = 'a[href^="/xapanel/xvps/server/detail?id="]'
-        await page.waitForSelector(detailLinkSelector, { timeout: 10000 })
-        await Promise.all([
-            page.waitForNavigation({ waitUntil: 'networkidle2' }),
-            page.click(detailLinkSelector),
-        ])
+        detailUrl = await resolveServerDetailUrl(page)
+        await page.goto(detailUrl, { waitUntil: 'networkidle2' })
         detailUrl = page.url()
         if (!detailUrl.includes('/server/detail')) {
             throw new Error(`unexpected detail url: ${detailUrl}`)

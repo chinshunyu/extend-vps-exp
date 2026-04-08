@@ -109,6 +109,33 @@ async function readExpireDate(page) {
     return parsed
 }
 
+async function ensureLoggedInDashboard(page) {
+    const dashboardSelector = 'tr:has(.freeServerIco), .contract__term'
+    const loginFormSelector = '#memberid, #user_password'
+
+    try {
+        await page.waitForSelector(`${dashboardSelector}, ${loginFormSelector}`, { timeout: 20000 })
+    } catch {
+        const title = await page.title()
+        throw new Error(`登录后页面状态未知，未出现仪表盘或登录表单。url=${page.url()} title=${title}`)
+    }
+
+    const hasDashboard = !!(await page.$(dashboardSelector))
+    if (hasDashboard) {
+        return
+    }
+
+    const loginError = await page.evaluate(() => {
+        const msg =
+            document.querySelector('.errorMessage')?.textContent ||
+            document.querySelector('.alert')?.textContent ||
+            document.querySelector('.notice')?.textContent
+        return msg?.replace(/\s+/g, ' ').trim() || ''
+    })
+
+    throw new Error(`登录失败，仍停留在登录页。url=${page.url()} error=${loginError || 'N/A'}`)
+}
+
 let browser
 let page
 let recorder
@@ -183,6 +210,10 @@ async function main() {
             page.waitForNavigation({ waitUntil: 'networkidle2' }),
             page.locator('text=ログインする').click(),
         ])
+    })
+
+    await runStep('verify login result', async () => {
+        await ensureLoggedInDashboard(page)
     })
 
     await runStep('read expire date', async () => {
