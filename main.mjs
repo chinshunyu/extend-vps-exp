@@ -185,9 +185,11 @@ async function main() {
 
     let detailUrl = ''
     await runStep('open server detail page', async () => {
+        const detailLinkSelector = 'a[href^="/xapanel/xvps/server/detail?id="]'
+        await page.waitForSelector(detailLinkSelector, { timeout: 10000 })
         await Promise.all([
             page.waitForNavigation({ waitUntil: 'networkidle2' }),
-            page.locator('a[href^="/xapanel/xvps/server/detail?id="]').first().click(),
+            page.click(detailLinkSelector),
         ])
         detailUrl = page.url()
         if (!detailUrl.includes('/server/detail')) {
