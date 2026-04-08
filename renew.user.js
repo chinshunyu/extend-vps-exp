@@ -2,7 +2,7 @@
 // @name         Extend VPS Expiration
 // @name:zh-CN   Xserver VPS 自动续期脚本
 // @namespace    http://tampermonkey.net/
-// @version      2025-07-21
+// @version      2026-04-09
 // @description  Automatically renews the expiration date of free Xserver VPS.
 // @description:zh-CN 自动为 Xserver 的免费 VPS 续期。
 // @author       You
@@ -11,6 +11,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addStyle
+// @require      https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js
 // @updateURL    https://raw.githubusercontent.com/GitHub30/extend-vps-exp/refs/heads/main/renew.user.js
 // @downloadURL  https://raw.githubusercontent.com/GitHub30/extend-vps-exp/refs/heads/main/renew.user.js
 // @supportURL   https://github.com/GitHub30/extend-vps-exp
@@ -50,6 +51,7 @@
  * fills the result, and submits the form once the Cloudflare Turnstile token is ready.)
  * =================================================================================================
  */
+/* global tf */
 
 // 翻译
 function t(text) {
@@ -79,6 +81,37 @@ function t(text) {
     if (!navigator?.language) return text
     return translations[text]?.[navigator.language.slice(0, 2)] ?? text
 }
+
+function decodeCaptcha(predictionTensor) {
+    const blankIndex = predictionTensor.shape[2] - 1;
+    const bestPath = predictionTensor.argMax(-1).dataSync();
+    const digits = [];
+    let previous = blankIndex;
+
+    for (const index of bestPath) {
+        if (index !== blankIndex && index !== previous) {
+            digits.push(String(index));
+        }
+        previous = index;
+    }
+
+    return digits.join('');
+}
+
+async function imageToCode(img) {
+    await tf.ready()
+    const model = await tf.loadLayersModel('https://github30.github.io/captcha-cloudrun/web_model/model.json?v=20260407-2')
+    return tf.tidy(() => {
+        const tensor = tf.browser
+        .fromPixels(img)
+        .resizeBilinear([60, 300])
+        .toFloat()
+        .div(255)
+        .expandDims(0);
+        return decodeCaptcha(model.predict(tensor))
+    });
+}
+
 
 (function () {
     'use strict';
@@ -185,7 +218,7 @@ function t(text) {
                             unsafeWindow.loginFunc();
                         } else {
                             console.warn(`${LOG_PREFIX} 页面登录函数 loginFunc 不存在或不是函数。`);
-                            updateStatusElement("警告：登录函数异常，请手动登录。");
+                            unsafeWindow.login_area.submit();
                         }
                     }, 500);
                 } else {
@@ -316,19 +349,7 @@ function t(text) {
 
             while (retryCount < maxRetries) {
                 try {
-                    const response = await fetch('https://captcha-120546510085.asia-northeast1.run.app', {
-                        method: 'POST',
-                        body: img.src,
-                        headers: {
-                            'Content-Type': 'text/plain'
-                        }
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`API请求失败: ${response.status}`);
-                    }
-
-                    codeResponse = await response.text();
+                    codeResponse = await imageToCode(img);
                     if (codeResponse && codeResponse.length >= 4) break;
 
                     throw new Error('API返回无效验证码');
