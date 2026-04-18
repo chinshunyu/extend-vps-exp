@@ -82,11 +82,13 @@ jobs:
 
       - name: Encrypt artifacts
         if: always()
+        env:
+          ARCHIVE_PASSWORD: ${{ secrets.PASSWORD }}
         run: |
           7z a \
-            -p"${{ secrets.PASSWORD }}" \
+            "-p${ARCHIVE_PASSWORD}" \
             -mhe=on \
-            artifacts_${{ steps.timestamp.outputs.date }}.7z \
+            "artifacts_${{ steps.timestamp.outputs.date }}.7z" \
             recording.webm *.png 2>/dev/null || true
 
       - name: Upload encrypted artifacts
