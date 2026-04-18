@@ -9,3 +9,5 @@ venv/
 # Artifacts
 *.png
 *.webm
+
+.DS_Store

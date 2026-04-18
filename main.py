@@ -3,6 +3,18 @@ import os
 import sys
 import logging
 import aiohttp
+
+# Patch requests.get to send GITHUB_TOKEN when Camoufox queries the GitHub API,
+# avoiding anonymous rate-limit (60/hr) on first fetch / mmdb download.
+if os.getenv('GITHUB_TOKEN'):
+    import requests as _rq
+    _orig_get = _rq.get
+    def _patched_get(url, *a, **kw):
+        h = dict(kw.pop('headers', None) or {})
+        if 'api.github.com' in url:
+            h.setdefault('Authorization', f"Bearer {os.environ['GITHUB_TOKEN']}")
+        return _orig_get(url, *a, headers=h, **kw)
+    _rq.get = _patched_get
 from urllib.parse import urlparse
 from browserforge.fingerprints import Screen
 from camoufox.async_api import AsyncCamoufox

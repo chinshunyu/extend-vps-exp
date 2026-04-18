@@ -2,7 +2,7 @@ name: VPS Auto Renewal
 
 on:
   schedule:
-    - cron: '0 0,8,16 * * *'
+    - cron: '0 1,9,17 * * *'
   workflow_dispatch:
 
 jobs:
